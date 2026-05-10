@@ -1,0 +1,113 @@
+// ==========================================
+// CLINIC APPOINTMENT & DIAGNOSTICS — ERD
+// ==========================================
+
+// 1. Department — clinic specialties / departments
+Table Department {
+  id    int     [pk, increment]
+  name  varchar [not null, unique, note: "e.g., General Medicine, Dermatology, Orthopedics"]
+}
+
+// 2. Doctor — physician working at the clinic
+Table Doctor {
+  id              int      [pk, increment]
+  department_id   int      [not null, ref: > Department.id]
+  full_name       varchar  [not null]
+  specialty       varchar  [not null, note: "Specific qualification: e.g., 'Cardiologist', 'Dermatologist'"]
+  license_number  varchar  [unique, not null]
+  phone           varchar  [unique]
+  email           varchar  [unique]
+  consultation_fee decimal [not null, note: "Base fee per consultation"]
+  available_days  varchar  [note: "e.g., 'Mon,Wed,Fri' — lightweight schedule flag"]
+}
+
+// 3. Patient — individual registered at the clinic
+// A patient can visit multiple times across multiple doctors.
+Table Patient {
+  id           int      [pk, increment]
+  full_name    varchar  [not null]
+  dob          date     [not null]
+  gender       varchar  [not null, note: "'MALE', 'FEMALE', 'OTHER'"]
+  blood_group  varchar  [note: "e.g., 'O+', 'AB-'"]
+  phone        varchar  [unique, not null]
+  email        varchar  [unique]
+  address      text
+  registered_at timestamp [not null]
+}
+
+// 4. Appointment — a booking slot (may or may not result in a consultation)
+// Separating Appointment from Consultation handles: cancellations, no-shows, rescheduling.
+Table Appointment {
+  id             int       [pk, increment]
+  patient_id     int       [not null, ref: > Patient.id]
+  doctor_id      int       [not null, ref: > Doctor.id]
+  scheduled_at   timestamp [not null]
+  reason         text      [note: "Patient-stated reason for visit"]
+  status         varchar   [not null, note: "'SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'"]
+  booked_at      timestamp [not null]
+}
+
+// 5. Consultation — the actual visit that happens after a completed appointment
+// 1-to-1 with Appointment: one appointment leads to at most one consultation.
+// Doctor's clinical notes, diagnosis, and prescriptions live here.
+Table Consultation {
+  id               int       [pk, increment]
+  appointment_id   int       [unique, not null, ref: - Appointment.id]  // 1-to-1
+  doctor_id        int       [not null, ref: > Doctor.id]
+  patient_id       int       [not null, ref: > Patient.id]
+  consultation_at  timestamp [not null]
+  symptoms         text
+  diagnosis        text
+  clinical_notes   text
+  follow_up_date   date      [note: "If doctor recommends a follow-up visit"]
+}
+
+// 6. DiagnosticTest — a catalog of available tests at the clinic lab
+Table DiagnosticTest {
+  id           int      [pk, increment]
+  test_name    varchar  [not null, unique, note: "e.g., 'CBC', 'Blood Sugar Fasting', 'Chest X-Ray'"]
+  description  text
+  test_type    varchar  [note: "'BLOOD', 'IMAGING', 'URINE', 'BIOPSY', 'OTHER'"]
+  price        decimal  [not null, note: "Base price for this test"]
+  turnaround_hours int  [note: "Expected hours for report generation"]
+}
+
+// 7. PrescribedTest — tests ordered for a specific consultation
+// One consultation can prescribe many tests (one-to-many).
+Table PrescribedTest {
+  id               int       [pk, increment]
+  consultation_id  int       [not null, ref: > Consultation.id]
+  test_id          int       [not null, ref: > DiagnosticTest.id]
+  prescribed_at    timestamp [not null]
+  urgency          varchar   [note: "'ROUTINE' or 'URGENT'"]
+  status           varchar   [not null, note: "'PENDING', 'SAMPLE_COLLECTED', 'IN_PROGRESS', 'REPORT_READY'"]
+
+  indexes {
+    (consultation_id, test_id) [name: "idx_prescribed_test_lookup"]
+  }
+}
+
+// 8. DiagnosticReport — the generated lab report for a prescribed test
+// 1-to-1 with PrescribedTest: each ordered test produces one report.
+Table DiagnosticReport {
+  id                  int       [pk, increment]
+  prescribed_test_id  int       [unique, not null, ref: - PrescribedTest.id]  // 1-to-1
+  patient_id          int       [not null, ref: > Patient.id]
+  report_date         timestamp [not null]
+  result_summary      text      [note: "Lab technician's written summary"]
+  is_abnormal         boolean   [not null, default: false, note: "Quick flag for doctor to review"]
+  report_file_url     varchar   [note: "Link to PDF report if digitized"]
+  reviewed_by_doctor  boolean   [default: false, note: "True once doctor marks report as reviewed"]
+}
+
+// 9. Payment — covers appointment consultation fee and/or test charges
+// Linked to appointment to capture the full billing event for a visit.
+Table Payment {
+  id               int       [pk, increment]
+  appointment_id   int       [not null, ref: > Appointment.id]
+  payment_for      varchar   [not null, note: "'CONSULTATION', 'DIAGNOSTICS', 'COMBINED'"]
+  amount           decimal   [not null]
+  payment_method   varchar   [note: "Cash, UPI, Card, Insurance"]
+  payment_status   varchar   [not null, note: "'PENDING', 'COMPLETED', 'REFUNDED'"]
+  paid_at          timestamp [note: "NULL until payment is confirmed"]
+}

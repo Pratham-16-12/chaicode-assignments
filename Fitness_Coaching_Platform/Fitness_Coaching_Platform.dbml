@@ -1,0 +1,119 @@
+// ==========================================
+// FITNESS INFLUENCER COACHING PLATFORM — ERD
+// ==========================================
+
+// 1. Trainer — the influencer/coach running the platform
+// Multiple trainers supported for team-based coaching businesses.
+Table Trainer {
+  id                int      [pk, increment]
+  full_name         varchar  [not null]
+  email             varchar  [unique, not null]
+  phone             varchar  [unique]
+  instagram_handle  varchar  [unique, note: "Primary brand identity"]
+  bio               text
+  specialization    varchar  [note: "e.g., 'Fat Loss', 'Muscle Gain', 'Rehab', 'Yoga'"]
+  joined_at         timestamp [not null]
+}
+
+// 2. Client — users who enroll in coaching programs
+// Baseline body stats stored here; progress over time is in CheckIn.
+Table Client {
+  id             int      [pk, increment]
+  full_name      varchar  [not null]
+  email          varchar  [unique, not null]
+  phone          varchar  [unique]
+  dob            date
+  gender         varchar  [note: "'MALE', 'FEMALE', 'OTHER'"]
+  height_cm      decimal  [note: "Static measurement; doesn't change often"]
+  goal           text     [note: "Client's stated fitness goal at registration"]
+  registered_at  timestamp [not null]
+}
+
+// 3. FitnessPlan — coaching programs/packages offered by a trainer
+// A plan is a template; multiple clients can subscribe to the same plan.
+Table FitnessPlan {
+  id              int      [pk, increment]
+  trainer_id      int      [not null, ref: > Trainer.id]
+  title           varchar  [not null]
+  description     text
+  plan_type       varchar  [not null, note: "'WORKOUT', 'DIET', 'COMBINED', 'CONSULTATION_ONLY'"]
+  duration_weeks  int      [not null, note: "Length of the program in weeks"]
+  price           decimal  [not null]
+  is_active       boolean  [not null, default: true, note: "False = plan no longer sold"]
+  created_at      timestamp [not null]
+}
+
+// 4. Subscription — a client enrolling in a specific plan under a specific trainer
+// Models: client buys plan, with start/end dates and subscription lifecycle.
+// One client can have multiple subscriptions over time (different plans or renewals).
+Table Subscription {
+  id          int       [pk, increment]
+  client_id   int       [not null, ref: > Client.id]
+  plan_id     int       [not null, ref: > FitnessPlan.id]
+  trainer_id  int       [not null, ref: > Trainer.id]
+  start_date  date      [not null]
+  end_date    date      [not null, note: "start_date + FitnessPlan.duration_weeks"]
+  status      varchar   [not null, note: "'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'"]
+  enrolled_at timestamp [not null]
+}
+
+// 5. Session — a scheduled 1-on-1 or group interaction between trainer and client
+// Sessions and check-ins are NOT the same thing.
+// Sessions = live video calls, consultations. Check-ins = client self-reports.
+Table Session {
+  id               int       [pk, increment]
+  subscription_id  int       [not null, ref: > Subscription.id]
+  trainer_id       int       [not null, ref: > Trainer.id]
+  client_id        int       [not null, ref: > Client.id]
+  session_type     varchar   [not null, note: "'CONSULTATION', 'LIVE_TRAINING', 'CHECK_IN_CALL', 'FOLLOW_UP'"]
+  scheduled_at     timestamp [not null]
+  duration_minutes int       [note: "Planned or actual session length"]
+  meeting_link     varchar   [note: "Google Meet / Zoom / Insta Live URL"]
+  status           varchar   [not null, note: "'SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'"]
+  trainer_notes    text      [note: "Trainer's private session notes"]
+}
+
+// 6. CheckIn — weekly/periodic self-report submitted by the client
+// Tracks body measurements over time; NOT mixed into the Client table.
+Table CheckIn {
+  id               int       [pk, increment]
+  client_id        int       [not null, ref: > Client.id]
+  subscription_id  int       [not null, ref: > Subscription.id]
+  check_in_date    date      [not null]
+  weight_kg        decimal   [note: "Client's current weight"]
+  body_fat_pct     decimal   [note: "Optional: body fat percentage"]
+  chest_cm         decimal
+  waist_cm         decimal
+  hips_cm          decimal
+  arms_cm          decimal
+  client_notes     text      [note: "How the client feels, diet adherence, workout completion"]
+  photo_url        varchar   [note: "Optional progress photo submitted by client"]
+
+  indexes {
+    (client_id, check_in_date) [name: "idx_checkin_timeline"]
+  }
+}
+
+// 7. ProgressNote — trainer's feedback on a specific client check-in
+// Separated from CheckIn so client data and trainer feedback don't mix.
+// 1-to-1 with CheckIn: each check-in gets one trainer feedback note.
+Table ProgressNote {
+  id              int       [pk, increment]
+  check_in_id     int       [unique, not null, ref: - CheckIn.id]  // 1-to-1
+  trainer_id      int       [not null, ref: > Trainer.id]
+  feedback        text      [not null, note: "Trainer's analysis of this week's progress"]
+  plan_adjustment text      [note: "Any recommended changes to workout or diet plan"]
+  recorded_at     timestamp [not null]
+}
+
+// 8. Payment — financial record per subscription
+// One subscription = one payment record (or renewal creates a new subscription + payment).
+Table Payment {
+  id               int       [pk, increment]
+  subscription_id  int       [unique, not null, ref: - Subscription.id]  // 1-to-1
+  amount           decimal   [not null, note: "Should match FitnessPlan.price at time of purchase"]
+  payment_method   varchar   [note: "UPI, Card, Bank Transfer, Cash"]
+  payment_status   varchar   [not null, note: "'PENDING', 'COMPLETED', 'FAILED', 'REFUNDED'"]
+  transaction_ref  varchar   [note: "UPI/bank transaction reference"]
+  paid_at          timestamp [note: "NULL until payment confirmed"]
+}

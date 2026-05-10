@@ -1,39 +1,92 @@
-# Comic-Con Event Parking System - Database Architecture
+# 🎪 Comic-Con Event Parking System — Database Design
 
-A robust relational database schema designed to handle the dynamic parking requirements of a large-scale convention venue hosting Comic-Con India.
+> **Web Dev Cohort 2026 | Databases Assignment**
 
-## 📌 Project Overview
-
-This project models a multi-zone event parking system capable of tracking thousands of visitors arriving in various vehicle types across multiple days. The architecture explicitly decouples vehicles, physical parking spots, and parking sessions to support real-world event constraints—such as the same vehicle entering multiple times, or a single parking spot being reused throughout the weekend.
-
-## 🏗️ Core Architecture & Logic
-
-The database is structured around a central hub (`ParkingSession`) to ensure maximum scalability and practicality.
-
-- **Dynamic Session Management:** Vehicles and Parking Spots are connected via the `ParkingSession` junction table. This many-to-many relationship over time ensures data isn't overwritten when a car leaves and returns.
-- **Role-Based Spot Allocation:** Implemented a `SpotCategory` structure to smoothly handle reserved areas for Cosplayers, Exhibitors, VIP guests, Staff, and EV Charging.
-- **Live Availability Tracking:** The system easily tracks currently parked vehicles by querying `ParkingSession` records where the `exit_time` is `NULL` and the status is `Active`.
-- **Decoupled Billing & Ticketing:** `Ticket` and `Payment` are strictly separated into 1-to-1 relationships with the session. This reflects real-world operations where tickets are generated upon entry, but payment amounts are calculated and recorded upon exit.
-
-## 🗄️ Database Tables
-
-1. **`VehicleCategory`**: Classifications like Bike, Car, SUV, Cab, or EV.
-2. **`Vehicle`**: Stores unique vehicle records via License Plate.
-3. **`Zone`**: Represents physical parking areas (Levels, Zones) and capacities.
-4. **`SpotCategory`**: Access restrictions (General, VIP, Staff, EV).
-5. **`ParkingSpot`**: Physical spaces mapped to specific zones and categories.
-6. **`ParkingSession`**: The core junction table recording entry/exit timestamps.
-7. **`Ticket`**: Records unique ticket numbers issued per session.
-8. **`Payment`**: Handles financial transactions and payment status.
-
-## 🚀 How to View the ER Diagram
-
-The schema is written in DBML (Database Markup Language). To visualize the Entity-Relationship Diagram:
-
-1. Copy the contents of `Comic_Con_Parking_System.dbml`.
-2. Navigate to [dbdiagram.io](https://dbdiagram.io).
-3. Paste the code into the editor to automatically render the database relationships.
+A relational database schema for a multi-zone event parking facility hosting Comic-Con India — handling thousands of vehicles across multiple days, zones, levels, and reserved categories.
 
 ---
 
-_Built for the Web Dev Cohort 2026._
+## 📌 Project Overview
+
+Comic-Con India attracts visitors arriving in bikes, cars, SUVs, cabs, and EVs across multiple event days. The venue has a structured parking facility split into **zones and levels**, with reserved areas for cosplayers, exhibitors, VIP guests, staff, and EV charging.
+
+This design tracks:
+- Vehicles entering and exiting the facility
+- Parking spot allocation per zone/level
+- Reserved and general spot categories
+- Complete session, ticket, and payment lifecycle
+
+---
+
+## 🏗️ Core Architecture
+
+The schema is built around **`ParkingSession`** as the temporal junction hub — the key insight that unlocks real-world correctness.
+
+```
+VehicleCategory ──< Vehicle ──< ParkingSession >── ParkingSpot >── Zone
+                                      │                   │
+                                   Ticket             SpotCategory
+                                   Payment
+```
+
+### Why This Design Works
+
+| Problem | Solution |
+|---|---|
+| Same vehicle enters multiple days | `Vehicle` holds only config; `ParkingSession` holds each visit |
+| Same spot reused throughout the event | `ParkingSpot` ↔ `ParkingSession` is many-to-many over time |
+| Track currently parked vehicles | Query `ParkingSession WHERE exit_time IS NULL` |
+| Reserved areas (VIP, EV, Staff) | `SpotCategory` with a `rate_multiplier` per category |
+| Calculate parking fee | `VehicleCategory.rate_per_hour × SpotCategory.rate_multiplier × hours_parked` |
+| Spot under maintenance | `ParkingSpot.is_maintenance = true` |
+
+---
+
+## 🗄️ Database Tables
+
+| # | Table | Purpose |
+|---|---|---|
+| 1 | `VehicleCategory` | Vehicle types: Bike, Car, SUV, Cab, EV — each with a base `rate_per_hour` |
+| 2 | `Vehicle` | Unique vehicle records identified by `license_plate` |
+| 3 | `Zone` | Physical parking areas/levels with `zone_type` (`ZONE` or `LEVEL`) and `floor_number` |
+| 4 | `SpotCategory` | Access tiers: General, Cosplayer, Exhibitor, VIP, Staff, EV Charging — each with a `rate_multiplier` |
+| 5 | `ParkingSpot` | Individual physical spaces mapped to a Zone and SpotCategory |
+| 6 | `ParkingSession` | **Core junction** — records every entry/exit event with timestamps and status |
+| 7 | `Ticket` | Unique ticket issued at entry, 1-to-1 with a session |
+| 8 | `Payment` | Financial record settled at exit, 1-to-1 with a session |
+
+---
+
+## 💡 Key Design Decisions
+
+- **`rate_per_hour` on `VehicleCategory`** + **`rate_multiplier` on `SpotCategory`** → complete, self-contained billing formula
+- **`Zone.zone_type`** distinguishes surface zones from multi-story levels; **`floor_number`** captures the exact level
+- **`ParkingSpot.is_maintenance`** cleanly removes a spot from allocation without deleting history
+- **Unique index on `(vehicle_id, entry_time)`** in `ParkingSession` prevents duplicate active sessions
+- **Unique index on `(zone_id, spot_number)`** in `ParkingSpot` prevents duplicate spot numbers per zone
+- **Ticket** = issued at entry (before fee is known); **Payment** = settled at exit (after duration is calculated) — correctly decoupled
+
+---
+
+## 🚀 How to View the ER Diagram
+
+The schema is written in **DBML** (Database Markup Language), which renders automatically on [dbdiagram.io](https://dbdiagram.io).
+
+1. Open [dbdiagram.io](https://dbdiagram.io)
+2. Copy the contents of [`Comic_Con_Parking_System.dbml`](./Comic_Con_Parking_System.dbml)
+3. Paste into the editor — the diagram renders instantly
+4. Use **Export → PNG / PDF** to save the visual
+
+---
+
+## 📁 Repository Structure
+
+```
+Comic_Con_Parking_System/
+├── Comic_Con_Parking_System.dbml   ← Full schema in DBML
+└── README.md                        ← This file
+```
+
+---
+
+*Built for Web Dev Cohort 2026.*

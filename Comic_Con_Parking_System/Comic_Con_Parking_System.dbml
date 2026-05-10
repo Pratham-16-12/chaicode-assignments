@@ -4,65 +4,82 @@
 
 // 1. Vehicle Categories (Bike, Car, SUV, Cab, EV)
 Table VehicleCategory {
-  id int [pk, increment]
-  name varchar [note: "e.g., Bike, Car, SUV, Cab, EV"]
+  id             int          [pk, increment]
+  name           varchar      [not null, note: "e.g., Bike, Car, SUV, Cab, EV"]
+  rate_per_hour  decimal      [not null, note: "Base hourly parking rate for this vehicle type"]
 }
 
 // 2. Vehicles (Tracks the actual vehicles entering)
+// A vehicle can enter multiple times — entry/exit is NOT stored here.
 Table Vehicle {
-  id int [pk, increment]
-  license_plate varchar [unique]
-  category_id int [ref: > VehicleCategory.id]
-  // Note: We don't store entry/exit here so the vehicle can visit multiple times!
+  id            int      [pk, increment]
+  license_plate varchar  [unique, not null]
+  owner_name    varchar  [note: "Optional: for registration or VIP tracking"]
+  category_id   int      [not null, ref: > VehicleCategory.id]
 }
 
-// 3. Parking Zones/Levels (North Zone, Level 1, etc.)
+// 3. Parking Zones / Levels (e.g., North Zone, Level 1, South Block)
 Table Zone {
-  id int [pk, increment]
-  name varchar
-  total_capacity int
+  id             int      [pk, increment]
+  name           varchar  [not null]
+  zone_type      varchar  [not null, note: "'ZONE' or 'LEVEL' — distinguishes surface zones from multi-story levels"]
+  floor_number   int      [note: "Applicable when zone_type = 'LEVEL'; e.g., 1, 2, 3"]
+  total_capacity int      [not null, note: "Static total. Live availability is derived via active ParkingSessions."]
 }
 
-// 4. Parking Spot Categories (Reserved, VIP, EV, General)
+// 4. Parking Spot Categories (Access restrictions)
 Table SpotCategory {
-  id int [pk, increment]
-  name varchar [note: "e.g., General, Cosplayer, Exhibitor, VIP, Staff, EV Charging"]
+  id              int      [pk, increment]
+  name            varchar  [not null, note: "e.g., General, Cosplayer, Exhibitor, VIP, Staff, EV Charging"]
+  rate_multiplier decimal  [not null, default: 1.0, note: "Multiplies VehicleCategory.rate_per_hour. VIP=1.5x, General=1.0x, etc."]
 }
 
-// 5. Parking Spots (The physical spaces)
+// 5. Parking Spots (Individual physical spaces)
+// Availability is tracked by checking for an Active ParkingSession on this spot.
 Table ParkingSpot {
-  id int [pk, increment]
-  spot_number varchar
-  zone_id int [ref: > Zone.id]
-  category_id int [ref: > SpotCategory.id]
-  is_maintenance boolean [default: false, note: "True if spot is closed"]
-  // Availability is tracked by checking if there is an 'Active' session for this spot
+  id             int      [pk, increment]
+  spot_number    varchar  [not null]
+  zone_id        int      [not null, ref: > Zone.id]
+  category_id    int      [not null, ref: > SpotCategory.id]
+  is_maintenance boolean  [default: false, note: "True if spot is temporarily closed for maintenance"]
+
+  indexes {
+    (zone_id, spot_number) [unique, name: "uq_spot_per_zone"]
+  }
 }
 
-// 6. Parking Sessions (The core junction handling reuse & multiple visits)
+// 6. Parking Sessions — The core junction table.
+// Models the many-to-many relationship between Vehicle and ParkingSpot over time.
+// One vehicle can have many sessions; one spot can serve many sessions.
 Table ParkingSession {
-  id int [pk, increment]
-  vehicle_id int [ref: > Vehicle.id]
-  spot_id int [ref: > ParkingSpot.id]
-  entry_time timestamp
-  exit_time timestamp [null, note: "NULL means the vehicle is currently parked inside"]
-  status varchar [note: "'Active' or 'Completed'"]
+  id          int        [pk, increment]
+  vehicle_id  int        [not null, ref: > Vehicle.id]
+  spot_id     int        [not null, ref: > ParkingSpot.id]
+  entry_time  timestamp  [not null]
+  exit_time   timestamp  [null, note: "NULL = vehicle is currently parked inside the venue"]
+  status      varchar    [not null, note: "'Active' or 'Completed'"]
+
+  indexes {
+    // Prevents the same vehicle from having two active sessions simultaneously
+    (vehicle_id, entry_time) [unique, name: "uq_vehicle_session"]
+  }
 }
 
-// 7. Parking Tickets
+// 7. Parking Tickets (Issued at entry, one per session)
 Table Ticket {
-  id int [pk, increment]
-  session_id int [unique, ref: - ParkingSession.id] // 1-to-1 relationship with session
-  ticket_number varchar [unique]
-  issued_at timestamp
+  id            int        [pk, increment]
+  session_id    int        [unique, not null, ref: - ParkingSession.id]  // strict 1-to-1
+  ticket_number varchar    [unique, not null]
+  issued_at     timestamp  [not null]
 }
 
-// 8. Payment Records
+// 8. Payment Records (Settled at exit, one per session)
+// Final amount = VehicleCategory.rate_per_hour x SpotCategory.rate_multiplier x duration_hours
 Table Payment {
-  id int [pk, increment]
-  session_id int [unique, ref: - ParkingSession.id] // 1-to-1 relationship with session
-  amount decimal
-  payment_method varchar [note: "UPI, Cash, Card"]
-  payment_status varchar [note: "Pending, Completed"]
-  paid_at timestamp [null]
+  id               int        [pk, increment]
+  session_id       int        [unique, not null, ref: - ParkingSession.id]  // strict 1-to-1
+  amount           decimal    [not null, note: "Calculated at exit: rate_per_hour x rate_multiplier x hours_parked"]
+  payment_method   varchar    [note: "UPI, Cash, Card"]
+  payment_status   varchar    [not null, note: "'Pending' or 'Completed'"]
+  paid_at          timestamp  [null, note: "NULL until payment is confirmed"]
 }

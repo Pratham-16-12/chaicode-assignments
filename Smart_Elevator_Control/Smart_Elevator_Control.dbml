@@ -1,0 +1,114 @@
+// ==========================================
+// SMART ELEVATOR CONTROL SYSTEM — ERD
+// LiftGrid Systems
+// ==========================================
+
+// 1. Buildings — top-level physical location
+Table Building {
+  id             int      [pk, increment]
+  name           varchar  [not null, note: "e.g., Infinity Tower, Phoenix Mall"]
+  address        varchar  [not null]
+  city           varchar  [not null]
+  total_floors   int      [not null]
+  created_at     timestamp [not null]
+}
+
+// 2. Floors — each floor belongs to exactly one building
+Table Floor {
+  id           int      [pk, increment]
+  building_id  int      [not null, ref: > Building.id]
+  floor_number int      [not null, note: "Numeric floor index; use 0 for Ground, -1 for Basement"]
+  floor_label  varchar  [note: "Human label: 'Ground', 'Lobby', 'B1', 'Terrace'"]
+
+  indexes {
+    (building_id, floor_number) [unique, name: "uq_floor_per_building"]
+  }
+}
+
+// 3. Elevators — physical elevator units inside a building
+// Static configuration only; status and ride history are stored separately.
+Table Elevator {
+  id               int      [pk, increment]
+  building_id      int      [not null, ref: > Building.id]
+  shaft_number     varchar  [not null, note: "Shaft identifier, e.g., 'A', 'B', '1'"]
+  name             varchar  [note: "Friendly name: 'Lift A', 'Cargo Lift 2'"]
+  capacity_kg      int      [not null, note: "Maximum weight capacity in kg"]
+  capacity_persons int      [not null, note: "Maximum passenger count"]
+  elevator_type    varchar  [not null, note: "'PASSENGER', 'CARGO', 'SERVICE'"]
+  installed_at     timestamp
+
+  indexes {
+    (building_id, shaft_number) [unique, name: "uq_shaft_per_building"]
+  }
+}
+
+// 4. ElevatorFloorService — many-to-many: which elevators serve which floors
+// An elevator can serve multiple floors; a floor can be served by multiple elevators.
+Table ElevatorFloorService {
+  id           int  [pk, increment]
+  elevator_id  int  [not null, ref: > Elevator.id]
+  floor_id     int  [not null, ref: > Floor.id]
+
+  indexes {
+    (elevator_id, floor_id) [unique, name: "uq_elevator_floor"]
+  }
+}
+
+// 5. ElevatorStatusLog — historical status log, not mixed into Elevator config
+// Query the latest record per elevator_id to get current status.
+Table ElevatorStatusLog {
+  id           int       [pk, increment]
+  elevator_id  int       [not null, ref: > Elevator.id]
+  status       varchar   [not null, note: "'IDLE', 'MOVING_UP', 'MOVING_DOWN', 'MAINTENANCE', 'DISABLED'"]
+  current_floor_id int   [ref: > Floor.id, note: "Which floor the elevator is currently at or nearest to"]
+  recorded_at  timestamp [not null]
+}
+
+// 6. FloorRequest — a user-generated call from a floor button
+// One request = one call press (UP or DOWN) on a specific floor.
+Table FloorRequest {
+  id            int       [pk, increment]
+  floor_id      int       [not null, ref: > Floor.id]
+  direction     varchar   [not null, note: "'UP' or 'DOWN'"]
+  requested_at  timestamp [not null]
+  status        varchar   [not null, note: "'PENDING', 'ASSIGNED', 'COMPLETED', 'CANCELLED'"]
+}
+
+// 7. RideAssignment — links a FloorRequest to an assigned Elevator (1-to-1)
+// Keeps assignment logic out of both FloorRequest and Elevator tables.
+Table RideAssignment {
+  id           int       [pk, increment]
+  request_id   int       [unique, not null, ref: - FloorRequest.id]  // 1-to-1
+  elevator_id  int       [not null, ref: > Elevator.id]
+  assigned_at  timestamp [not null]
+  status       varchar   [not null, note: "'EN_ROUTE', 'ARRIVED', 'COMPLETED'"]
+}
+
+// 8. RideLog — records a completed trip (origin → destination)
+// One assignment can log multiple stops in complex systems, but typically 1 trip.
+// Used for analytics: how many rides, which elevator handles most load, peak hours.
+Table RideLog {
+  id                    int       [pk, increment]
+  assignment_id         int       [not null, ref: > RideAssignment.id]
+  elevator_id           int       [not null, ref: > Elevator.id]
+  origin_floor_id       int       [not null, ref: > Floor.id]
+  destination_floor_id  int       [not null, ref: > Floor.id]
+  start_time            timestamp [not null]
+  end_time              timestamp [note: "NULL if trip is still in progress"]
+  estimated_passengers  int       [note: "Optional sensor-based count"]
+}
+
+// 9. MaintenanceRecord — tracks planned and completed maintenance per elevator
+// Separate from status log so history is never overwritten.
+Table MaintenanceRecord {
+  id                  int       [pk, increment]
+  elevator_id         int       [not null, ref: > Elevator.id]
+  maintenance_type    varchar   [not null, note: "'ROUTINE', 'EMERGENCY', 'INSPECTION'"]
+  issue_description   text      [note: "What triggered this maintenance event"]
+  technician_name     varchar
+  scheduled_at        timestamp [not null]
+  started_at          timestamp
+  completed_at        timestamp [note: "NULL if maintenance is still ongoing"]
+  resolution_notes    text
+  status              varchar   [not null, note: "'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'"]
+}
