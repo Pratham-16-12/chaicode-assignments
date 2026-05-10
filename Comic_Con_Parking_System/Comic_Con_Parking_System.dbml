@@ -1,0 +1,68 @@
+// ==========================================
+// COMIC-CON PARKING SYSTEM ERD
+// ==========================================
+
+// 1. Vehicle Categories (Bike, Car, SUV, Cab, EV)
+Table VehicleCategory {
+  id int [pk, increment]
+  name varchar [note: "e.g., Bike, Car, SUV, Cab, EV"]
+}
+
+// 2. Vehicles (Tracks the actual vehicles entering)
+Table Vehicle {
+  id int [pk, increment]
+  license_plate varchar [unique]
+  category_id int [ref: > VehicleCategory.id]
+  // Note: We don't store entry/exit here so the vehicle can visit multiple times!
+}
+
+// 3. Parking Zones/Levels (North Zone, Level 1, etc.)
+Table Zone {
+  id int [pk, increment]
+  name varchar
+  total_capacity int
+}
+
+// 4. Parking Spot Categories (Reserved, VIP, EV, General)
+Table SpotCategory {
+  id int [pk, increment]
+  name varchar [note: "e.g., General, Cosplayer, Exhibitor, VIP, Staff, EV Charging"]
+}
+
+// 5. Parking Spots (The physical spaces)
+Table ParkingSpot {
+  id int [pk, increment]
+  spot_number varchar
+  zone_id int [ref: > Zone.id]
+  category_id int [ref: > SpotCategory.id]
+  is_maintenance boolean [default: false, note: "True if spot is closed"]
+  // Availability is tracked by checking if there is an 'Active' session for this spot
+}
+
+// 6. Parking Sessions (The core junction handling reuse & multiple visits)
+Table ParkingSession {
+  id int [pk, increment]
+  vehicle_id int [ref: > Vehicle.id]
+  spot_id int [ref: > ParkingSpot.id]
+  entry_time timestamp
+  exit_time timestamp [null, note: "NULL means the vehicle is currently parked inside"]
+  status varchar [note: "'Active' or 'Completed'"]
+}
+
+// 7. Parking Tickets
+Table Ticket {
+  id int [pk, increment]
+  session_id int [unique, ref: - ParkingSession.id] // 1-to-1 relationship with session
+  ticket_number varchar [unique]
+  issued_at timestamp
+}
+
+// 8. Payment Records
+Table Payment {
+  id int [pk, increment]
+  session_id int [unique, ref: - ParkingSession.id] // 1-to-1 relationship with session
+  amount decimal
+  payment_method varchar [note: "UPI, Cash, Card"]
+  payment_status varchar [note: "Pending, Completed"]
+  paid_at timestamp [null]
+}
